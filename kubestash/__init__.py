@@ -636,6 +636,7 @@ def cmd_daemon(args):
         if args.verbose:
             print("checking DynamoDB Stream for changes...")
         response = client.get_records(ShardIterator=shard_iterator, Limit=100)
+        print(len(response['Records']))
         if len(response['Records']) > 0:
             if args.verbose:
                 print("detected DynamoDB changes, running push command...")
@@ -651,7 +652,7 @@ def cmd_daemonall(args):
     if args.verbose:
         print("checking DynamoDB Stream for changes...")
 
-    response = client.get_records(ShardIterator=shard_iterator, Limit=10)
+    response = client.get_records(ShardIterator=shard_iterator, Limit=100)
 
     while True:
         shard_iterator = response['NextShardIterator']
@@ -659,11 +660,11 @@ def cmd_daemonall(args):
         if args.verbose:
             print("checking DynamoDB Stream for changes...")
 
-        response = client.get_records(ShardIterator=shard_iterator, Limit=10)
+        response = client.get_records(ShardIterator=shard_iterator, Limit=100)
+        print(len(response['Records']))
 
         if len(response['Records']) > 0:
-            for record in:
-                response['Records']
+            for record in response['Records']:
                 key = record['dynamodb']['Keys']['name']['S']
                 if args.verbose:
                     print("detected DynamoDB changes, running push command...")
