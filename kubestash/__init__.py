@@ -300,8 +300,11 @@ def get_kube_client():
     with the default configuration set correctly
     by considering the proxy and the context variables
     """
-    api_client = kubernetes.client.ApiClient(configuration=kubernetes.client.configuration)
-    return kubernetes.client.CoreV1Api(api_client=api_client)
+    kubernetes.config.load_kube_config()
+    api_client = kubernetes.client.CoreV1Api()
+    return api_client
+    #api_client = kubernetes.client.ApiClient(configuration=kubernetes.client.configuration)
+    #return kubernetes.client.CoreV1Api(api_client=api_client)
 
 
 def kube_init_secret(args, name, data):
