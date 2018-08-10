@@ -489,7 +489,7 @@ def cmd_push(args):
                                                                                                   table=args.table))
     else:
         data = credstash_getall(args)
-        kube_create_secret(args, data)
+        kube_create_secret(args, args.namespace, args.secret, data)
         print('created Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(table=args.table,
                                                                                              secret=args.secret))
 
@@ -575,7 +575,7 @@ def filter_secrets(secrets, ns, secret):
 
 
 def get_stream_client(args):
-    client = boto3.client('dynamodbstreams')
+    client = boto3.client('dynamodbstreams', region_name=args.region)
 
     response = client.list_streams(TableName=args.table, Limit=100)
 
@@ -587,27 +587,28 @@ def get_stream_client(args):
         sys.exit(1)
 
     # take the first stream we find... not sure if there are any caveats in doing this.
-    arn = response['Streams'][0]['StreamArn']
+    if len(response['Streams']) > 0:
+        arn = response['Streams'][0]['StreamArn']
 
-    if args.verbose:
-        print("using DynamoDB Stream ARN: {arn}".format(arn=arn))
+        if args.verbose:
+            print("using DynamoDB Stream ARN: {arn}".format(arn=arn))
 
-    response = client.describe_stream(StreamArn=arn, Limit=100)
+        response = client.describe_stream(StreamArn=arn, Limit=100)
 
-    if not response['StreamDescription']['Shards']:
-        print("fatal: no shards found for DynamoDB stream '{arn}'.".format(arn=arn))
-        sys.exit(1)
+        if not response['StreamDescription']['Shards']:
+            print("fatal: no shards found for DynamoDB stream '{arn}'.".format(arn=arn))
+            sys.exit(1)
 
-    shard_id = response['StreamDescription']['Shards'][0]['ShardId']
+        shard_id = response['StreamDescription']['Shards'][0]['ShardId']
 
-    if args.verbose:
-        print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=shard_id))
+        if args.verbose:
+            print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=shard_id))
 
-    response = client.get_shard_iterator(StreamArn=arn, ShardId=shard_id, ShardIteratorType='LATEST')
+        response = client.get_shard_iterator(StreamArn=arn, ShardId=shard_id, ShardIteratorType='LATEST')
 
-    shard_iterator = response['ShardIterator']
+        shard_iterator = response['ShardIterator']
 
-    return (client, shard_iterator)
+        return (client, shard_iterator)
 
 
 def cmd_daemon(args):
