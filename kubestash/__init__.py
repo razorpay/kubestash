@@ -595,11 +595,18 @@ def get_stream_client(args):
 
         response = client.describe_stream(StreamArn=arn, Limit=100)
 
+        if not response['StreamDescription']:
+            print("fatal: no StreamDescription found for DynamoDB stream '{arn}'.".format(arn=arn))
+            sys.exit(1)
+
         if not response['StreamDescription']['Shards']:
             print("fatal: no shards found for DynamoDB stream '{arn}'.".format(arn=arn))
             sys.exit(1)
-
-        shard_id = response['StreamDescription']['Shards'][0]['ShardId']
+        try:
+            shard_id = response['StreamDescription']['Shards'][0]['ShardId']
+        except Exception as exc:
+            print("fatal: error fetching shard id:{0}".format(exc))
+            sys.exit(1)
 
         if args.verbose:
             print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=shard_id))
@@ -665,19 +672,31 @@ def cmd_daemonall(args):
             print("checking DynamoDB Stream for changes...")
 
         response = client.get_records(ShardIterator=shard_iterator, Limit=100)
-        print(len(response['Records']))
 
-        if len(response['Records']) > 0:
-            for record in response['Records']:
-                key = record['dynamodb']['Keys']['name']['S']
-                if args.verbose:
-                    print("detected DynamoDB changes, running push command...")
-                argscopy = copy.copy(args)
-                argscopy.secretname = key
-                cmd_pushall(argscopy)
+        if 'Records' not in response:
+            print ("Error: No Records found in response for Shard:{0}".format(shard_iterator))
+
+        else:
+            records = response['Records']
+
+            if args.verbose:
+                print "Shard ID:{0}, Record Len:{1}".format(shard_iterator, )
+
+            if len(records) > 0:
+                for record in records:
+                    try:
+                        key = record['dynamodb']['Keys']['name']['S']
+                        if args.verbose:
+                            print("detected DynamoDB changes, running push command...")
+                        argscopy = copy.copy(args)
+                        argscopy.secretname = key
+                        cmd_pushall(argscopy)
+                    except Exception as exc:
+                        print "Fatal: Error performing cmd_pushall:{0}".format(exc)
+                        sys.exit(1)
 
         response = client.get_records(ShardIterator=shard_iterator, Limit=100)
-        
+
         time.sleep(args.interval)
 
 
