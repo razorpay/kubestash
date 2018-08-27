@@ -676,6 +676,8 @@ def cmd_daemonall(args):
                 argscopy.secretname = key
                 cmd_pushall(argscopy)
 
+        response = client.get_records(ShardIterator=shard_iterator, Limit=100)
+        
         time.sleep(args.interval)
 
 
