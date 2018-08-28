@@ -680,7 +680,7 @@ def cmd_daemonall(args):
             records = response['Records']
 
             if args.verbose:
-                print "Shard ID:{0}, Record Len:{1}".format(shard_iterator, )
+                print "Shard ID:{0}, Record Len:{1}".format(shard_iterator, len(records))
 
             if len(records) > 0:
                 for record in records:
