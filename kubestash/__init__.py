@@ -665,6 +665,15 @@ def cmd_daemon(args):
 def cmd_daemonall(args):
     args.force = True
 
+    ## During startup do a force push of all the secrets to avoid dynamodb event loss
+    try:
+        argscopy = copy.copy(args)
+        cmd_pushall(argscopy)
+    except Exception as exc:
+        print "Fatal: Error performing startup cmd_pushall:{0}".format(exc)
+        sys.exit(1)
+
+
     client, shard_iterator = get_stream_client(args)
 
     if args.verbose:
