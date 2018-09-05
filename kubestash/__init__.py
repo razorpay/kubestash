@@ -28,6 +28,10 @@ def base_parser():
                         dest='verbose',
                         action='store_true',
                         help='verbose output')
+    parser.add_argument('-in-cluster', '--in-cluster',
+                        dest='in_cluster',
+                        action='store_true',
+                        help='In Cluster Mode')
     parser.add_argument('--trace',
                         dest='trace',
                         action='store_true',
@@ -294,13 +298,16 @@ def maybe_reverse_dns_subdomain(args, string):
     return reverse_dns_subdomain(string) if args.lowercase else string
 
 
-def get_kube_client():
+def get_kube_client(args):
     """
     Return a kubernetes.client.CoreV1Api object
     with the default configuration set correctly
     by considering the proxy and the context variables
     """
-    kubernetes.config.load_kube_config()
+    if args.in_cluster == False:
+        kubernetes.config.load_kube_config()
+    else:
+        kubernetes.config.load_incluster_config()
     api_client = kubernetes.client.CoreV1Api()
     return api_client
     #api_client = kubernetes.client.ApiClient(configuration=kubernetes.client.configuration)
@@ -329,7 +336,7 @@ def kube_init_secret(args, name, data):
 def kube_create_secret(args, namespace, secret, data):
     """ Creates a Kubernetes secret. Returns the api response from Kubernetes."""
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#create_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     body = kube_init_secret(args, secret, data)
     return kube.create_namespaced_secret(namespace, body)
 
@@ -337,7 +344,7 @@ def kube_create_secret(args, namespace, secret, data):
 def kube_replace_secret(args, namespace, secret, data):
     """ Replaces a kubernetes secret. Returns the api response from Kubernetes. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#replace_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     body = kube_init_secret(args, secret, data)
     return kube.replace_namespaced_secret(secret, namespace, body)
 
@@ -345,7 +352,7 @@ def kube_replace_secret(args, namespace, secret, data):
 def kube_secret_exists(namespace, secret):
     """ Returns True or False if a Kubernetes secret exists or not respectively. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#read_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     try:
         # TODO: might be better to call list_namespaced_secrets here.
         kube.read_namespaced_secret(secret, namespace)
@@ -360,7 +367,7 @@ def kube_secret_exists(namespace, secret):
 def kube_namespace_exists(args):
     """ Returns True or False if a Kubernetes namespace exists or not respectively. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#read_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     try:
         # TODO: might be better to call list_namespaced_secrets here.
         kube.read_namespace(args.namespace)
@@ -374,20 +381,20 @@ def kube_namespace_exists(args):
 
 def kube_read_secret(args):
     """ Returns the full contents of a Kubernetes secret. """
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     return kube.read_namespaced_secret(args.secret, args.namespace)
 
 
 def kube_read_deployment(args):
     """ Returns the full contents of Kubernetes deployment. """
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     response = kube.read_namespaced_deployment(args.deployment, args.namespace)
     return response
 
 
 def kube_patch_deployment(args, deployment):
     """ Patches a Kubernetes deployment with data `deployment`. Returns the full contents of the patched deployment. """
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     return kube.patch_namespaced_deployment(args.deployment, args.namespace, deployment)
 
 
@@ -699,12 +706,7 @@ def cmd_daemonall(args):
 
         time.sleep(args.interval)
 
-
-def main():
-    args = parse_args()
-
-    config_file = os.path.expanduser(os.environ.get('KUBECONFIG', '~/.kube/config'))
-
+def load_config_file(args, config_file):
     if args.verbose:
         print('loading kubernetes config at: "{config_file}"'.format(config_file=config_file))
 
@@ -724,6 +726,14 @@ def main():
                           context_list=', '.join(context_names)))
             sys.exit(1)
         kubernetes.config.load_kube_config(config_file=config_file, context=args.context)
+
+def main():
+    args = parse_args()
+
+    config_file = os.path.expanduser(os.environ.get('KUBECONFIG', '~/.kube/config'))
+
+    if args.in_cluster == False:
+        load_config_file(args, config_file)
 
     try:
         if args.cmd == 'push':
