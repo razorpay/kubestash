@@ -46,6 +46,12 @@ def base_parser():
                         type=str,
                         default='default',
                         help='kubernetes namespace')
+    parser.add_argument('-e', '--environment',
+                        dest='environment',
+                        action='store',
+                        type=str,
+                        default=None,
+                        help='kubernetes cluster(stage/prod)')
     parser.add_argument('-l', '--lowercase',
                         dest='lowercase',
                         action='store_true',
@@ -349,7 +355,7 @@ def kube_replace_secret(args, namespace, secret, data):
     return kube.replace_namespaced_secret(secret, namespace, body)
 
 
-def kube_secret_exists(namespace, secret):
+def kube_secret_exists(args,namespace, secret):
     """ Returns True or False if a Kubernetes secret exists or not respectively. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#read_namespaced_secret
     kube = get_kube_client(args)
@@ -484,102 +490,63 @@ def cmd_push(args):
 
     if args.verbose:
         print('checking that "{secret}" exists...'.format(secret=args.secret))
-
-    if kube_secret_exists(args.namespace, args.secret):
+    data = credstash_getall(args)
+    prefix = "{0}/{1}/secrets/{2}".format(args.namespace,args.environment, args.secret)
+    secretData = {}
+    for secret, value in data.items():
+        if prefix in secret:
+            secret = secret.strip(prefix)
+            secretData[secret] = value
+            
+    if kube_secret_exists(args, args.namespace, args.secret):
         if not args.force:
             print('kubernetes Secret: "{secret}" already exists, run with -f to replace it.'.format(secret=args.secret))
             sys.exit(1)
         else:
-            data = credstash_getall(args)
-            kube_replace_secret(args, data)
+            kube_replace_secret(args, args.namespace, args.secret, secretData)
             print('replaced Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(secret=args.secret,
                                                                                                   table=args.table))
     else:
-        data = credstash_getall(args)
-        kube_create_secret(args, args.namespace, args.secret, data)
+        kube_create_secret(args, args.namespace, args.secret, secretData)
         print('created Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(table=args.table,
                                                                                              secret=args.secret))
-
-
 def cmd_pushall(args):
     """Syncs a Credstash table with an entire cluster"""
+    if not kube_namespace_exists(args):
+    	print('kubernetes namespace: "{namespace}" doesn\'t exist. Please create it before running kubestash'.format(namespace=args.namespace))
+        sys.exit(1)
 
     # Map of all namespaces to secrets
     secretMap = {}
 
-    # Depending on whether or not we need to
-    if args.secretname:
-        # If the string contains slashes
-        # we can infer the namespace and secretname
-        _secretname = args.secretname
-        secretkey = args.secretname
-        if "/" in args.secretname:
-            args.namespace, args.secret, _secretname = args.secretname.split('/')
-        else:
-            secretkey = args.namespace + "/" + args.secret + "/" + args.secretname
+    prefix = ''
 
-        if args.verbose:
-            print("Syncing a single secret key: key={key}, ns={namespace}, secret={secret}".format(key=secretkey, namespace=args.namespace, secret=args.secret))
-
-        secrets = {args.secretname: credstash_getone(secretkey, args)}
-
-        secretMap = {
-            args.namespace: set([args.secret])
-        }
-    else:
-        prefix = ''
-
-        # This is incorrect, since it doesn't work for the `default` namespace
-        # TODO: Figure out a way!
-        if args.namespace != 'default':
-            if not kube_namespace_exists(args):
-                print('kubernetes namespace: "{namespace}" doesn\'t exist. Please create it before running kubestash'.format(namespace=args.namespace))
-                sys.exit(1)
-            else:
-                prefix += args.namespace + "/"
-            if args.secret:
-                prefix += args.secret + "/"
+    # This is incorrect, since it doesn't work for the `default` namespace
+    # TODO: Figure out a way!
+    if args.namespace != 'default':
+    	prefix = "{0}/{1}/secrets/".format(args.namespace,args.environment)
         secrets = credstash_getall(args)
         secrets = {k: secrets[k] for k in secrets if k.startswith(prefix)}
-
-        # Go through each key and create a dict of namespace->secrets to be created
-        # if they don't exist
-        for secret_key in secrets:
-            ns, secret, env_key = secret_key.split('/')
-            try:
-                secretMap[ns].add(secret)
-            except Exception as e:
-                secretMap[ns] = set()
-                secretMap[ns].add(secret)
-
-    for ns in secretMap:
-        # Maybe fix the method to take just string instead?
-        if not kube_namespace_exists(namedtuple('Arg', ['namespace'])(namespace=ns)):
-            print('kubernetes namespace: "{ns}" doesn\'t exist. Ignoring'.format(ns=ns))
-            continue
-
-        # Iterate through the secrets and make sure they exist
-        for secret in secretMap[ns]:
-            prefix = ns + "/" + secret + "/"
-            data = filter_secrets(secrets, ns, secret)
-            if kube_secret_exists(ns, secret):
+	for key, value in secrets.items():
+            if prefix in key and '/' in key:
+                secret, secretname = key.strip(prefix).split('/')
+                if secret not in secretMap:
+                    secretMap[secret] = {secretname: value}
+                else:
+                    secretMap[secret][secretname] = value
+        ns = args.namespace
+        for secret, data in secretMap.items():
+            if kube_secret_exists(args,args.namespace, secret):
                 if args.verbose:
                     print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
-                kube_replace_secret(args, ns, secret, data)
+                kube_replace_secret(args, args.namespace, secret, data)
             else:
                 if args.verbose:
                     print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
-                kube_create_secret(args, ns, secret, data)
+                kube_create_secret(args, args.namespace, secret, data)
     if args.verbose:
         print("All secrets synced")
-
-
-def filter_secrets(secrets, ns, secret):
-    """ Filters the secrets passed and strips away the prefix"""
-    prefix = ns + "/" + secret
-
-    return {k.split('/')[2]: secrets[k] for k in secrets if k.startswith(prefix)}
-
+        
 
 def get_stream_client(args):
     client = boto3.client('dynamodbstreams', region_name=args.region)
@@ -664,6 +631,7 @@ def cmd_daemon(args):
 
 def cmd_daemonall(args):
     args.force = True
+    args.secretname = None
 
     ## During startup do a force push of all the secrets to avoid dynamodb event loss
     try:
