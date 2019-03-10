@@ -537,12 +537,10 @@ def cmd_pushall(args):
         ns = args.namespace
         for secret, data in secretMap.items():
             if kube_secret_exists(args,args.namespace, secret):
-                if args.verbose:
-                    print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
+                print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
                 kube_replace_secret(args, args.namespace, secret, data)
             else:
-                if args.verbose:
-                    print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
+                print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
                 kube_create_secret(args, args.namespace, secret, data)
     if args.verbose:
         print("All secrets synced")
@@ -560,9 +558,13 @@ def get_stream_client(args):
               .format(table=args.table))
         sys.exit(1)
 
+
     # take the first stream we find... not sure if there are any caveats in doing this.
     if len(response['Streams']) > 0:
         arn = response['Streams'][0]['StreamArn']
+
+        working_shard_id = None
+        start_sequence_number = None
 
         if args.verbose:
             print("using DynamoDB Stream ARN: {arn}".format(arn=arn))
@@ -577,15 +579,24 @@ def get_stream_client(args):
             print("fatal: no shards found for DynamoDB stream '{arn}'.".format(arn=arn))
             sys.exit(1)
         try:
-            shard_id = response['StreamDescription']['Shards'][0]['ShardId']
+            for shard in response['StreamDescription']['Shards']:
+                seqNum = shard['SequenceNumberRange']
+                if 'StartingSequenceNumber' in seqNum and 'EndingSequenceNumber' not in seqNum:
+                    working_shard_id = shard['ShardId']
+                    start_sequence_number = seqNum['StartingSequenceNumber']
+                    break
+            if args.verbose:
+                print("Shard Id:{0}, Sequence Number:{1}".format(working_shard_id, start_sequence_number))
         except Exception as exc:
             print("fatal: error fetching shard id:{0}".format(exc))
             sys.exit(1)
 
         if args.verbose:
-            print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=shard_id))
+            print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=working_shard_id))
 
-        response = client.get_shard_iterator(StreamArn=arn, ShardId=shard_id, ShardIteratorType='LATEST')
+        response = client.get_shard_iterator(StreamArn=arn, ShardId=working_shard_id,
+                                             ShardIteratorType='AFTER_SEQUENCE_NUMBER',
+                                             SequenceNumber=start_sequence_number)
 
         shard_iterator = response['ShardIterator']
 
@@ -610,8 +621,7 @@ def cmd_daemon(args):
     response = client.get_records(ShardIterator=shard_iterator, Limit=100)
 
     if len(response['Records']) > 0:
-        if args.verbose:
-            print("detected DynamoDB changes, running push command...")
+        print("detected DynamoDB changes, running push command...")
         cmd_push(args)
 
     time.sleep(args.interval)
@@ -623,8 +633,7 @@ def cmd_daemon(args):
         response = client.get_records(ShardIterator=shard_iterator, Limit=100)
         print(len(response['Records']))
         if len(response['Records']) > 0:
-            if args.verbose:
-                print("detected DynamoDB changes, running push command...")
+            print("detected DynamoDB changes, running push command...")
             cmd_push(args)
         time.sleep(args.interval)
 
@@ -670,8 +679,7 @@ def cmd_daemonall(args):
                 for record in records:
                     try:
                         key = record['dynamodb']['Keys']['name']['S']
-                        if args.verbose:
-                            print("detected DynamoDB changes, running push command...")
+                        print("detected DynamoDB changes, running push command...")
                         argscopy = copy.copy(args)
                         argscopy.secretname = key
                         cmd_pushall(argscopy)
