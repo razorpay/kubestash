@@ -668,6 +668,7 @@ def cmd_daemonall(args):
 
         if 'Records' not in response:
             print ("Error: No Records found in response for Shard:{0}".format(shard_iterator))
+            continue
 
         else:
             records = response['Records']
@@ -682,7 +683,7 @@ def cmd_daemonall(args):
                         print("detected DynamoDB changes, running push command...")
                         argscopy = copy.copy(args)
                         argscopy.secretname = key
-                        cmd_pushall(argscopy)
+                        cmd_push(argscopy)
                     except Exception as exc:
                         print "Fatal: Error performing cmd_pushall:{0}".format(exc)
                         sys.exit(1)
