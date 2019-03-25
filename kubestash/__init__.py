@@ -28,6 +28,10 @@ def base_parser():
                         dest='verbose',
                         action='store_true',
                         help='verbose output')
+    parser.add_argument('-in-cluster', '--in-cluster',
+                        dest='in_cluster',
+                        action='store_true',
+                        help='In Cluster Mode')
     parser.add_argument('--trace',
                         dest='trace',
                         action='store_true',
@@ -42,6 +46,12 @@ def base_parser():
                         type=str,
                         default='default',
                         help='kubernetes namespace')
+    parser.add_argument('-e', '--environment',
+                        dest='environment',
+                        action='store',
+                        type=str,
+                        default=None,
+                        help='kubernetes cluster(stage/prod)')
     parser.add_argument('-l', '--lowercase',
                         dest='lowercase',
                         action='store_true',
@@ -294,14 +304,20 @@ def maybe_reverse_dns_subdomain(args, string):
     return reverse_dns_subdomain(string) if args.lowercase else string
 
 
-def get_kube_client():
+def get_kube_client(args):
     """
     Return a kubernetes.client.CoreV1Api object
     with the default configuration set correctly
     by considering the proxy and the context variables
     """
-    api_client = kubernetes.client.ApiClient(configuration=kubernetes.client.configuration)
-    return kubernetes.client.CoreV1Api(api_client=api_client)
+    if args.in_cluster == False:
+        kubernetes.config.load_kube_config()
+    else:
+        kubernetes.config.load_incluster_config()
+    api_client = kubernetes.client.CoreV1Api()
+    return api_client
+    #api_client = kubernetes.client.ApiClient(configuration=kubernetes.client.configuration)
+    #return kubernetes.client.CoreV1Api(api_client=api_client)
 
 
 def kube_init_secret(args, name, data):
@@ -326,7 +342,7 @@ def kube_init_secret(args, name, data):
 def kube_create_secret(args, namespace, secret, data):
     """ Creates a Kubernetes secret. Returns the api response from Kubernetes."""
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#create_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     body = kube_init_secret(args, secret, data)
     return kube.create_namespaced_secret(namespace, body)
 
@@ -334,15 +350,15 @@ def kube_create_secret(args, namespace, secret, data):
 def kube_replace_secret(args, namespace, secret, data):
     """ Replaces a kubernetes secret. Returns the api response from Kubernetes. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#replace_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     body = kube_init_secret(args, secret, data)
     return kube.replace_namespaced_secret(secret, namespace, body)
 
 
-def kube_secret_exists(namespace, secret):
+def kube_secret_exists(args,namespace, secret):
     """ Returns True or False if a Kubernetes secret exists or not respectively. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#read_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     try:
         # TODO: might be better to call list_namespaced_secrets here.
         kube.read_namespaced_secret(secret, namespace)
@@ -357,7 +373,7 @@ def kube_secret_exists(namespace, secret):
 def kube_namespace_exists(args):
     """ Returns True or False if a Kubernetes namespace exists or not respectively. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#read_namespaced_secret
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     try:
         # TODO: might be better to call list_namespaced_secrets here.
         kube.read_namespace(args.namespace)
@@ -371,20 +387,20 @@ def kube_namespace_exists(args):
 
 def kube_read_secret(args):
     """ Returns the full contents of a Kubernetes secret. """
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     return kube.read_namespaced_secret(args.secret, args.namespace)
 
 
 def kube_read_deployment(args):
     """ Returns the full contents of Kubernetes deployment. """
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     response = kube.read_namespaced_deployment(args.deployment, args.namespace)
     return response
 
 
 def kube_patch_deployment(args, deployment):
     """ Patches a Kubernetes deployment with data `deployment`. Returns the full contents of the patched deployment. """
-    kube = get_kube_client()
+    kube = get_kube_client(args)
     return kube.patch_namespaced_deployment(args.deployment, args.namespace, deployment)
 
 
@@ -474,105 +490,64 @@ def cmd_push(args):
 
     if args.verbose:
         print('checking that "{secret}" exists...'.format(secret=args.secret))
-
-    if kube_secret_exists(args.namespace, args.secret):
+    data = credstash_getall(args)
+    prefix = "{0}/{1}/secrets/{2}".format(args.namespace,args.environment, args.secret)
+    secretData = {}
+    for secret, value in data.items():
+        if prefix in secret:
+            secret = secret.strip(prefix)
+            secretData[secret] = value
+            
+    if kube_secret_exists(args, args.namespace, args.secret):
         if not args.force:
             print('kubernetes Secret: "{secret}" already exists, run with -f to replace it.'.format(secret=args.secret))
             sys.exit(1)
         else:
-            data = credstash_getall(args)
-            kube_replace_secret(args, data)
+            kube_replace_secret(args, args.namespace, args.secret, secretData)
             print('replaced Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(secret=args.secret,
                                                                                                   table=args.table))
     else:
-        data = credstash_getall(args)
-        kube_create_secret(args, data)
+        kube_create_secret(args, args.namespace, args.secret, secretData)
         print('created Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(table=args.table,
                                                                                              secret=args.secret))
-
-
 def cmd_pushall(args):
     """Syncs a Credstash table with an entire cluster"""
+    if not kube_namespace_exists(args):
+    	print('kubernetes namespace: "{namespace}" doesn\'t exist. Please create it before running kubestash'.format(namespace=args.namespace))
+        sys.exit(1)
 
     # Map of all namespaces to secrets
     secretMap = {}
 
-    # Depending on whether or not we need to
-    if args.secretname:
-        # If the string contains slashes
-        # we can infer the namespace and secretname
-        _secretname = args.secretname
-        secretkey = args.secretname
-        if "/" in args.secretname:
-            args.namespace, args.secret, _secretname = args.secretname.split('/')
-        else:
-            secretkey = args.namespace + "/" + args.secret + "/" + args.secretname
+    prefix = ''
 
-        if args.verbose:
-            print("Syncing a single secret key: key={key}, ns={namespace}, secret={secret}".format(key=secretkey, namespace=args.namespace, secret=args.secret))
-
-        secrets = {args.secretname: credstash_getone(secretkey, args)}
-
-        secretMap = {
-            args.namespace: set([args.secret])
-        }
-    else:
-        prefix = ''
-
-        # This is incorrect, since it doesn't work for the `default` namespace
-        # TODO: Figure out a way!
-        if args.namespace != 'default':
-            if not kube_namespace_exists(args):
-                print('kubernetes namespace: "{namespace}" doesn\'t exist. Please create it before running kubestash'.format(namespace=args.namespace))
-                sys.exit(1)
-            else:
-                prefix += args.namespace + "/"
-            if args.secret:
-                prefix += args.secret + "/"
+    # This is incorrect, since it doesn't work for the `default` namespace
+    # TODO: Figure out a way!
+    if args.namespace != 'default':
+    	prefix = "{0}/{1}/secrets/".format(args.namespace,args.environment)
         secrets = credstash_getall(args)
         secrets = {k: secrets[k] for k in secrets if k.startswith(prefix)}
-
-        # Go through each key and create a dict of namespace->secrets to be created
-        # if they don't exist
-        for secret_key in secrets:
-            ns, secret, env_key = secret_key.split('/')
-            try:
-                secretMap[ns].add(secret)
-            except Exception as e:
-                secretMap[ns] = set()
-                secretMap[ns].add(secret)
-
-    for ns in secretMap:
-        # Maybe fix the method to take just string instead?
-        if not kube_namespace_exists(namedtuple('Arg', ['namespace'])(namespace=ns)):
-            print('kubernetes namespace: "{ns}" doesn\'t exist. Ignoring'.format(ns=ns))
-            continue
-
-        # Iterate through the secrets and make sure they exist
-        for secret in secretMap[ns]:
-            prefix = ns + "/" + secret + "/"
-            data = filter_secrets(secrets, ns, secret)
-            if kube_secret_exists(ns, secret):
-                if args.verbose:
-                    print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
-                kube_replace_secret(args, ns, secret, data)
+	for key, value in secrets.items():
+            if prefix in key and '/' in key:
+                secret, secretname = key.strip(prefix).split('/')
+                if secret not in secretMap:
+                    secretMap[secret] = {secretname: value}
+                else:
+                    secretMap[secret][secretname] = value
+        ns = args.namespace
+        for secret, data in secretMap.items():
+            if kube_secret_exists(args,args.namespace, secret):
+                print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
+                kube_replace_secret(args, args.namespace, secret, data)
             else:
-                if args.verbose:
-                    print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
-                kube_create_secret(args, ns, secret, data)
+                print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
+                kube_create_secret(args, args.namespace, secret, data)
     if args.verbose:
         print("All secrets synced")
-
-
-def filter_secrets(secrets, ns, secret):
-    """ Filters the secrets passed and strips away the prefix"""
-    prefix = ns + "/" + secret
-
-    return {k.split('/')[2]: secrets[k] for k in secrets if k.startswith(prefix)}
-
+        
 
 def get_stream_client(args):
-    client = boto3.client('dynamodbstreams')
+    client = boto3.client('dynamodbstreams', region_name=args.region)
 
     response = client.list_streams(TableName=args.table, Limit=100)
 
@@ -583,28 +558,49 @@ def get_stream_client(args):
               .format(table=args.table))
         sys.exit(1)
 
+
     # take the first stream we find... not sure if there are any caveats in doing this.
-    arn = response['Streams'][0]['StreamArn']
+    if len(response['Streams']) > 0:
+        arn = response['Streams'][0]['StreamArn']
 
-    if args.verbose:
-        print("using DynamoDB Stream ARN: {arn}".format(arn=arn))
+        working_shard_id = None
+        start_sequence_number = None
 
-    response = client.describe_stream(StreamArn=arn, Limit=100)
+        if args.verbose:
+            print("using DynamoDB Stream ARN: {arn}".format(arn=arn))
 
-    if not response['StreamDescription']['Shards']:
-        print("fatal: no shards found for DynamoDB stream '{arn}'.".format(arn=arn))
-        sys.exit(1)
+        response = client.describe_stream(StreamArn=arn, Limit=100)
 
-    shard_id = response['StreamDescription']['Shards'][0]['ShardId']
+        if not response['StreamDescription']:
+            print("fatal: no StreamDescription found for DynamoDB stream '{arn}'.".format(arn=arn))
+            sys.exit(1)
 
-    if args.verbose:
-        print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=shard_id))
+        if not response['StreamDescription']['Shards']:
+            print("fatal: no shards found for DynamoDB stream '{arn}'.".format(arn=arn))
+            sys.exit(1)
+        try:
+            for shard in response['StreamDescription']['Shards']:
+                seqNum = shard['SequenceNumberRange']
+                if 'StartingSequenceNumber' in seqNum and 'EndingSequenceNumber' not in seqNum:
+                    working_shard_id = shard['ShardId']
+                    start_sequence_number = seqNum['StartingSequenceNumber']
+                    break
+            if args.verbose:
+                print("Shard Id:{0}, Sequence Number:{1}".format(working_shard_id, start_sequence_number))
+        except Exception as exc:
+            print("fatal: error fetching shard id:{0}".format(exc))
+            sys.exit(1)
 
-    response = client.get_shard_iterator(StreamArn=arn, ShardId=shard_id, ShardIteratorType='LATEST')
+        if args.verbose:
+            print("using DynamoDB Stream shard id: {shard_id}".format(shard_id=working_shard_id))
 
-    shard_iterator = response['ShardIterator']
+        response = client.get_shard_iterator(StreamArn=arn, ShardId=working_shard_id,
+                                             ShardIteratorType='AFTER_SEQUENCE_NUMBER',
+                                             SequenceNumber=start_sequence_number)
 
-    return (client, shard_iterator)
+        shard_iterator = response['ShardIterator']
+
+        return (client, shard_iterator)
 
 
 def cmd_daemon(args):
@@ -625,8 +621,7 @@ def cmd_daemon(args):
     response = client.get_records(ShardIterator=shard_iterator, Limit=100)
 
     if len(response['Records']) > 0:
-        if args.verbose:
-            print("detected DynamoDB changes, running push command...")
+        print("detected DynamoDB changes, running push command...")
         cmd_push(args)
 
     time.sleep(args.interval)
@@ -638,14 +633,23 @@ def cmd_daemon(args):
         response = client.get_records(ShardIterator=shard_iterator, Limit=100)
         print(len(response['Records']))
         if len(response['Records']) > 0:
-            if args.verbose:
-                print("detected DynamoDB changes, running push command...")
+            print("detected DynamoDB changes, running push command...")
             cmd_push(args)
         time.sleep(args.interval)
 
 
 def cmd_daemonall(args):
     args.force = True
+    args.secretname = None
+
+    ## During startup do a force push of all the secrets to avoid dynamodb event loss
+    try:
+        argscopy = copy.copy(args)
+        cmd_pushall(argscopy)
+    except Exception as exc:
+        print "Fatal: Error performing startup cmd_pushall:{0}".format(exc)
+        sys.exit(1)
+
 
     client, shard_iterator = get_stream_client(args)
 
@@ -661,25 +665,34 @@ def cmd_daemonall(args):
             print("checking DynamoDB Stream for changes...")
 
         response = client.get_records(ShardIterator=shard_iterator, Limit=100)
-        print(len(response['Records']))
 
-        if len(response['Records']) > 0:
-            for record in response['Records']:
-                key = record['dynamodb']['Keys']['name']['S']
-                if args.verbose:
-                    print("detected DynamoDB changes, running push command...")
-                argscopy = copy.copy(args)
-                argscopy.secretname = key
-                cmd_pushall(argscopy)
+        if 'Records' not in response:
+            print ("Error: No Records found in response for Shard:{0}".format(shard_iterator))
+            continue
+
+        else:
+            records = response['Records']
+
+            if args.verbose:
+                print "Shard ID:{0}, Record Len:{1}".format(shard_iterator, len(records))
+
+            if len(records) > 0:
+                for record in records:
+                    try:
+                        key = record['dynamodb']['Keys']['name']['S']
+                        print("detected DynamoDB changes, running push command...")
+                        argscopy = copy.copy(args)
+                        argscopy.secretname = key
+                        cmd_push(argscopy)
+                    except Exception as exc:
+                        print "Fatal: Error performing cmd_pushall:{0}".format(exc)
+                        sys.exit(1)
+
+        response = client.get_records(ShardIterator=shard_iterator, Limit=100)
 
         time.sleep(args.interval)
 
-
-def main():
-    args = parse_args()
-
-    config_file = os.path.expanduser(os.environ.get('KUBECONFIG', '~/.kube/config'))
-
+def load_config_file(args, config_file):
     if args.verbose:
         print('loading kubernetes config at: "{config_file}"'.format(config_file=config_file))
 
@@ -699,6 +712,14 @@ def main():
                           context_list=', '.join(context_names)))
             sys.exit(1)
         kubernetes.config.load_kube_config(config_file=config_file, context=args.context)
+
+def main():
+    args = parse_args()
+
+    config_file = os.path.expanduser(os.environ.get('KUBECONFIG', '~/.kube/config'))
+
+    if args.in_cluster == False:
+        load_config_file(args, config_file)
 
     try:
         if args.cmd == 'push':
