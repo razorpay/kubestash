@@ -37,6 +37,10 @@ def base_parser():
                         dest='force',
                         action='store_true',
                         help='replace a secret if it already exists')
+    parser.add_argument('--preserve-metadata',
+                        dest='preserve_metadata',
+                        action='store_true',
+                        help='preserve object\'s metadata while replacing secret')
     parser.add_argument('-n', '--namespace',
                         dest='namespace',
                         action='store',
@@ -273,7 +277,7 @@ def maybe_reverse_dns_subdomain(args, string):
     return reverse_dns_subdomain(string) if args.lowercase else string
 
 
-def kube_init_secret(args, name, data):
+def kube_init_secret(args, name, data, metadata=None):
     """
     Initialize a Kubernetes secret object (only in memory).
     Data contains the secret data. Each key must consist of alphanumeric
@@ -288,7 +292,8 @@ def kube_init_secret(args, name, data):
         generate_key(args, key): base64.b64encode(data[key].encode('utf-8')).decode('utf-8')
         for key in data
     }
-    metadata = kubernetes.client.V1ObjectMeta(name=name)
+    if metadata == None:
+        metadata = kubernetes.client.V1ObjectMeta(name=name)
     return kubernetes.client.V1Secret(data=converted_data, type='Opaque', metadata=metadata)
 
 
@@ -304,7 +309,12 @@ def kube_replace_secret(args, namespace, secret, data):
     """ Replaces a kubernetes secret. Returns the api response from Kubernetes. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#replace_namespaced_secret
     kube = kubernetes.client.CoreV1Api()
-    body = kube_init_secret(args, secret, data)
+    if args.preserve_metadata:
+        existing_secret = kube.read_namespaced_secret(secret, namespace)
+        metadata = existing_secret.metadata
+        body = kube_init_secret(args, secret, data, metadata)
+    else:
+        body = kube_init_secret(args, secret, data)
     return kube.replace_namespaced_secret(secret, namespace, body)
 
 

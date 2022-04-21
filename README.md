@@ -29,6 +29,7 @@ optional arguments:
   -v, --verbose         verbose output
   --trace               show the full stack trace when an SSLError happens
   -f, --force           replace a secret if it already exists
+  --preserve-metadata   preserve object's metadata while replacing secret
   -n NAMESPACE, --namespace NAMESPACE
                         kubernetes namespace
   -U, --uppercase       For lowercase keys in credstash, convert them
