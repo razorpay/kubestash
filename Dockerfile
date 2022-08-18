@@ -1,5 +1,7 @@
-FROM python:2.7-alpine3.10
+FROM python:3.7-alpine3.16
 # See https://github.com/pyca/cryptography/blob/master/docs/installation.rst#alpine
+RUN apk update \
+ && apk upgrade --no-progress
 RUN apk add --no-cache \
     gcc \
     libffi-dev \
