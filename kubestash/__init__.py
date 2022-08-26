@@ -650,7 +650,7 @@ def main():
                   .format(context=args.context,
                           context_list=', '.join(context_names)))
             sys.exit(1)
-    except (ValueError, IOError):
+    except:
         # if the KUBECONFIG is missing or invalid, fall back to incluster config
         kubernetes.config.load_incluster_config()
 
