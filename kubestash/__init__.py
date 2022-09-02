@@ -1,4 +1,5 @@
 import argparse
+from ast import arg
 import base64
 import sys
 import time
@@ -309,8 +310,11 @@ def kube_replace_secret(args, namespace, secret, data):
     """ Replaces a kubernetes secret. Returns the api response from Kubernetes. """
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#replace_namespaced_secret
     kube = kubernetes.client.CoreV1Api()
+    print("Args preserve_metadata : "+str(args.preserve_metadata))
     if args.preserve_metadata:
         existing_secret = kube.read_namespaced_secret(secret, namespace)
+        if existing_secret.data != data:
+             print("Secret data different for "+str(namespace)+" and secret "+str(secret))
         metadata = existing_secret.metadata
         body = kube_init_secret(args, secret, data, metadata)
     else:
@@ -447,6 +451,7 @@ def cmd_pushall(args):
     # Map of all namespaces to secrets
     secretMap = {}
 
+    print("Args Secretname : "+str(args.secretname) + " Args verbose : "+str(args.verbose))
     # Depending on whether or not we need to
     if args.secretname:
         # If the string contains slashes
