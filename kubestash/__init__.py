@@ -317,6 +317,9 @@ def kube_replace_secret(args, namespace, secret, data):
         metadata = existing_secret.metadata
         body = kube_init_secret(args, secret, data, metadata)
     else:
+        existing_secret = kube.read_namespaced_secret(secret, namespace)
+        if existing_secret.data != data:
+             print("Secret data different for "+str(namespace))
         body = kube_init_secret(args, secret, data)
     return kube.replace_namespaced_secret(secret, namespace, body)
 
