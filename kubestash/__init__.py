@@ -319,7 +319,9 @@ def kube_replace_secret(args, namespace, secret, data):
         body = kube_init_secret(args, secret, data, metadata)
     else:
         body = kube_init_secret(args, secret, data)
-    
+
+    retval = kube.replace_namespaced_secret(secret, namespace, body)
+
     new_secret = kube.read_namespaced_secret(secret, namespace)
     new_secret_data = new_secret.data
 
@@ -327,8 +329,8 @@ def kube_replace_secret(args, namespace, secret, data):
         print("There's an update to secret data in namespace "+str(namespace) + " for secret "+str(secret))
     else:
         print("Secret data not updated in namespace "+ str(namespace) + " for secret " + str(secret))
-
-    return kube.replace_namespaced_secret(secret, namespace, body)
+    
+    return retval
 
 
 def kube_secret_exists(namespace, secret):
