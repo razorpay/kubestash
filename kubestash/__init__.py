@@ -1,5 +1,4 @@
 import argparse
-from ast import arg
 import base64
 import sys
 import time
