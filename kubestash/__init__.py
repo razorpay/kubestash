@@ -310,17 +310,24 @@ def kube_replace_secret(args, namespace, secret, data):
     # https://github.com/kubernetes-incubator/client-python/blob/master/kubernetes/docs/CoreV1Api.md#replace_namespaced_secret
     kube = kubernetes.client.CoreV1Api()
     print("Args preserve_metadata : "+str(args.preserve_metadata))
+    current_secret = kube.read_namespaced_secret(secret, namespace)
+    current_secret_data = current_secret.data
+
     if args.preserve_metadata:
         existing_secret = kube.read_namespaced_secret(secret, namespace)
-        if existing_secret.data != data:
-             print("Secret data different for "+str(namespace))
         metadata = existing_secret.metadata
         body = kube_init_secret(args, secret, data, metadata)
     else:
-        existing_secret = kube.read_namespaced_secret(secret, namespace)
-        if existing_secret.data != data:
-             print("Secret data different for "+str(namespace))
         body = kube_init_secret(args, secret, data)
+    
+    new_secret = kube.read_namespaced_secret(secret, namespace)
+    new_secret_data = new_secret.data
+
+    if current_secret_data != new_secret_data:
+        print("There's an update to secret data in namespace "+str(namespace) + " for secret "+str(secret))
+    else:
+        print("Secret data not updated in namespace "+ str(namespace) + " for secret " + str(secret))
+
     return kube.replace_namespaced_secret(secret, namespace, body)
 
 
