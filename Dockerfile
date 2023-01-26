@@ -1,5 +1,5 @@
 FROM python:3.12.0a4-alpine3.17
-# See https://github.com/pyca/cryptography/blob/master/docs/installation.rst#alpine
+
 ENV PYTHONUNBUFFERED=0
 RUN apk update \
  && apk upgrade --no-progress
