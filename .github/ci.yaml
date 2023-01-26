@@ -20,7 +20,7 @@ jobs:
         run: |
           BRANCH_NAME=`echo ${GITHUB_REF} | cut -c12- | tr -s ' ' | sed -e 's/\./_/g;s/\//_/g;s/-/_/g'`
           if [ $BRANCH_NAME == "master" ]; then
-            echo ::set-output name=name::$GITHUB_REPOSITORY:$BRANCH_NAME-$GITHUB_SHA, $GITHUB_REPOSITORY:$BRANCH_NAME, $GITHUB_REPOSITORY:latest
+            echo ::set-output name=name::$GITHUB_REPOSITORY:$BRANCH_NAME-$GITHUB_SHA, $GITHUB_REPOSITORY:$BRANCH_NAME
           else
             echo ::set-output name=name::$GITHUB_REPOSITORY:$BRANCH_NAME-$GITHUB_SHA, $GITHUB_REPOSITORY:$BRANCH_NAME
           fi
