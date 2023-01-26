@@ -12,8 +12,6 @@ import copy
 import traceback
 from collections import namedtuple
 
-import collections
-collections.Callable = collections.abc.Callable
 
 # TODO: args.profile, args.arn
 # TODO: args.version
