@@ -531,7 +531,6 @@ def cmd_pushall(args):
                 if kube_secret_exists(ns, secret):
                     if args.verbose:
                         print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
-                        print("")
                     kube_replace_secret(args, ns, secret, data)
                 else:
                     if args.verbose:
