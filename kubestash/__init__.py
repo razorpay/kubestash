@@ -324,11 +324,15 @@ def kube_replace_secret(args, namespace, secret, data):
 
     new_secret = kube.read_namespaced_secret(secret, namespace)
     new_secret_data = new_secret.data
+    print("Number of secrets in {secret} after replacing the secret={num}".format(secret=secret, num=len(new_secret_data)))
 
     if current_secret_data != new_secret_data:
         print("There's an update to secret data in namespace "+str(namespace) + " for secret "+str(secret))
     else:
         print("Secret data not updated in namespace "+ str(namespace) + " for secret " + str(secret))
+
+    if len(new_secret_data) != len(data):
+        print("Secrets missing from secret={secret}".format(secret=secret))
     
     return retval
 
@@ -496,6 +500,7 @@ def cmd_pushall(args):
             if args.secret:
                 prefix += args.secret + "/"
         secrets = credstash_getall(args)
+        print("{secrets_count} secrets have been fetched from {table}".format(secrets_count=len(secrets), table=args.table))
         secrets = {k: secrets[k] for k in secrets if k.startswith(prefix)}
 
         # Go through each key and create a dict of namespace->secrets to be created
@@ -525,9 +530,11 @@ def cmd_pushall(args):
 
         # Iterate through the secrets and make sure they exist
         for secret in secretMap[ns]:
+            print("Found {num_secret_obj} secret objects in namespace {ns}".format(num_secret_obj=len(secretMap[ns]), ns=ns))
             try:
                 prefix = ns + "/" + secret + "/"
                 data = filter_secrets(secrets, ns, secret)
+                print("Num of secrets found in {secret}={val} in namespace={ns}".format(secret=secret, val=len(data), ns=ns))
                 if kube_secret_exists(ns, secret):
                     if args.verbose:
                         print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
