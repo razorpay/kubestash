@@ -315,7 +315,7 @@ def kube_replace_secret(args, namespace, secret, data):
     current_secret_data = current_secret.data
 
     for secretkey in current_secret_data:
-        if secretkey not in data:
+        if secretkey.lower() not in data and secretkey.upper() not in data:
             print("The credstash fetch has the key {key} missing in secret {secret}".format(key=secretkey, secret=secret))
             data[secretkey] = (base64.b64decode(current_secret_data[secretkey])).decode('UTF-8')
 
