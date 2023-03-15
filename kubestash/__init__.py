@@ -10,6 +10,7 @@ import credstash
 import boto3
 import copy
 import traceback
+import re
 from collections import namedtuple
 
 
@@ -313,6 +314,11 @@ def kube_replace_secret(args, namespace, secret, data):
     current_secret = kube.read_namespaced_secret(secret, namespace)
     current_secret_data = current_secret.data
 
+    for secretkey in current_secret_data:
+        if secretkey.lower() not in data and secretkey.upper() not in data:
+            print("Failed to fetch {key} in secret {secret} in namespace {ns} during credstash getall".format(key=secretkey, secret=secret, ns=namespace))
+            # data[secretkey] = (base64.b64decode(current_secret_data[secretkey])).decode('UTF-8')
+
     if args.preserve_metadata:
         existing_secret = kube.read_namespaced_secret(secret, namespace)
         metadata = existing_secret.metadata
@@ -505,6 +511,21 @@ def cmd_pushall(args):
                 print('Found malformed key: {sec}'.format(sec=secret_key))
                 continue
             ns, secret, env_key = secret_key.split('/')
+            objname_re = re.compile('[a-z0-9]([-a-z0-9]*[a-z0-9])?')
+            keyname_re = re.compile('[-_a-zA-Z0-9]+')
+
+            if not objname_re.fullmatch(ns):
+                print('Found malfomed namespace value: {ns}'.format(ns=ns))
+                continue
+
+            elif not objname_re.fullmatch(secret):
+                print('Found malfomed secret name value: {secret}'.format(secret=secret))
+                continue
+
+            elif not keyname_re.fullmatch(env_key):
+                print('Found malfomed key value: {key}'.format(key=env_key))
+                continue
+
             try:
                 secretMap[ns].add(secret)
             except Exception as e:
