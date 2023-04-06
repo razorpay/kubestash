@@ -226,6 +226,7 @@ def credstash_getall(args):
     secrets = credstash.getAllSecrets('',
                                       region=args.region,
                                       table=args.table,
+                                      kms_region="ap-south-1",
                                       **session_params)
     return secrets
 
