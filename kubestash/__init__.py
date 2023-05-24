@@ -11,11 +11,22 @@ import boto3
 import copy
 import traceback
 from collections import namedtuple
+import signal
+import time
 
 
 # TODO: args.profile, args.arn
 # TODO: args.version
 
+# Flag to check if sigterm received
+SIGTERM_RECEIVED = False
+
+# add sigterm handler for graceful termination
+def sigterm_handler(signum, frame):
+    # Handle SIGTERM signal
+    print("SIGTERM signal received")
+    # SIGTERM signal received, update global variable
+    SIGTERM_RECEIVED = True
 
 def base_parser():
     """ Parses arguments shared by every subcommand. """
@@ -459,6 +470,8 @@ def cmd_push(args):
 def cmd_pushall(args):
     """Syncs a Credstash table with an entire cluster"""
 
+    global SIGTERM_RECEIVED
+
     # Map of all namespaces to secrets
     secretMap = {}
 
@@ -530,11 +543,16 @@ def cmd_pushall(args):
                 if kube_secret_exists(ns, secret):
                     if args.verbose:
                         print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
+                    # check if sigterm received, exit after replace completed
                     kube_replace_secret(args, ns, secret, data)
+                    if SIGTERM_RECEIVED:
+                        sys.exit(0)
                 else:
                     if args.verbose:
                         print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
                     kube_create_secret(args, ns, secret, data)
+                    if SIGTERM_RECEIVED:
+                        sys.exit(0)
             except:
                 if args.verbose:
                     traceback.print_exc()
