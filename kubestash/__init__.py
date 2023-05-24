@@ -28,6 +28,9 @@ def sigterm_handler(signum, frame):
     # SIGTERM signal received, update global variable
     SIGTERM_RECEIVED = True
 
+# Register the SIGTERM signal handler
+signal.signal(signal.SIGTERM, sigterm_handler)
+
 def base_parser():
     """ Parses arguments shared by every subcommand. """
     parser = argparse.ArgumentParser(add_help=False)
