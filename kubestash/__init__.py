@@ -458,11 +458,16 @@ def cmd_push(args):
         else:
             data = credstash_getall(args)
             kube_replace_secret(args, args.namespace, args.secret, data)
+            if SIGTERM_RECEIVED:
+                sys.exit(0)
             print('replaced Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(secret=args.secret,
                                                                                                   table=args.table))
     else:
         data = credstash_getall(args)
         kube_create_secret(args, args.namespace, args.secret, data)
+         # handle graceful term here
+        if SIGTERM_RECEIVED:
+            sys.exit(0)
         print('created Kubernetes Secret: "{secret}" with Credstash table: "{table}"'.format(table=args.table,
                                                                                              secret=args.secret))
 
