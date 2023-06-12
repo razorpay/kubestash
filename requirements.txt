@@ -1,4 +1,4 @@
 kubernetes==25.3.0
 boto3==1.26.68
-credstash==1.17.1
+credstash==1.16.2
 urllib3==1.26.14
