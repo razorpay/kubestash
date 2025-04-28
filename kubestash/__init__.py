@@ -10,12 +10,26 @@ import credstash
 import boto3
 import copy
 import traceback
+import re
 from collections import namedtuple
-
+import signal
+import time
 
 # TODO: args.profile, args.arn
 # TODO: args.version
 
+# Flag to check if sigterm received
+SIGTERM_RECEIVED = False
+
+# add sigterm handler for graceful termination
+def sigterm_handler(signum, frame):
+    # Handle SIGTERM signal
+    print("SIGTERM signal received")
+    # SIGTERM signal received, update global variable
+    SIGTERM_RECEIVED = True
+
+# Register the SIGTERM signal handler
+signal.signal(signal.SIGTERM, sigterm_handler)
 
 def base_parser():
     """ Parses arguments shared by every subcommand. """
@@ -313,6 +327,11 @@ def kube_replace_secret(args, namespace, secret, data):
     current_secret = kube.read_namespaced_secret(secret, namespace)
     current_secret_data = current_secret.data
 
+    for secretkey in current_secret_data:
+        if secretkey.lower() not in data and secretkey.upper() not in data:
+            print("Failed to fetch {key} in secret {secret} in namespace {ns} during credstash getall".format(key=secretkey, secret=secret, ns=namespace))
+            # data[secretkey] = (base64.b64decode(current_secret_data[secretkey])).decode('UTF-8')
+
     if args.preserve_metadata:
         existing_secret = kube.read_namespaced_secret(secret, namespace)
         metadata = existing_secret.metadata
@@ -459,6 +478,8 @@ def cmd_push(args):
 def cmd_pushall(args):
     """Syncs a Credstash table with an entire cluster"""
 
+    global SIGTERM_RECEIVED
+
     # Map of all namespaces to secrets
     secretMap = {}
 
@@ -505,6 +526,21 @@ def cmd_pushall(args):
                 print('Found malformed key: {sec}'.format(sec=secret_key))
                 continue
             ns, secret, env_key = secret_key.split('/')
+            objname_re = re.compile('[a-z0-9]([-a-z0-9]*[a-z0-9])?')
+            keyname_re = re.compile('[-_a-zA-Z0-9]+')
+
+            if not objname_re.fullmatch(ns):
+                print('Found malfomed namespace value: {ns}'.format(ns=ns))
+                continue
+
+            elif not objname_re.fullmatch(secret):
+                print('Found malfomed secret name value: {secret}'.format(secret=secret))
+                continue
+
+            elif not keyname_re.fullmatch(env_key):
+                print('Found malfomed key value: {key}'.format(key=env_key))
+                continue
+
             try:
                 secretMap[ns].add(secret)
             except Exception as e:
@@ -531,10 +567,14 @@ def cmd_pushall(args):
                     if args.verbose:
                         print("Force pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
                     kube_replace_secret(args, ns, secret, data)
+                    if SIGTERM_RECEIVED:
+                        sys.exit(0)
                 else:
                     if args.verbose:
                         print("Creating and pushing secret to kubernetes: ns={ns}, secret={secret}".format(ns=ns, secret=secret))
                     kube_create_secret(args, ns, secret, data)
+                    if SIGTERM_RECEIVED:
+                        sys.exit(0)
             except:
                 if args.verbose:
                     traceback.print_exc()

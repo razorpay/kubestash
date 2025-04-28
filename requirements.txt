@@ -1,5 +1,4 @@
-kubernetes==24.2.0
-boto3==1.6.5
-credstash==1.14.0
-urllib3>=1.24.2
-
+kubernetes==25.3.0
+boto3==1.26.68
+credstash==1.17.1
+urllib3==1.26.14
