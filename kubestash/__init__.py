@@ -505,6 +505,7 @@ def cmd_pushall(args):
                 print('Found malformed key: {sec}'.format(sec=secret_key))
                 continue
             ns, secret, env_key = secret_key.split('/')
+            print("Namespace={namespace}, Secret={secret}, env_key={key}".format(namespace=ns, secret=secret, key=env_key))
             try:
                 secretMap[ns].add(secret)
             except Exception as e:
