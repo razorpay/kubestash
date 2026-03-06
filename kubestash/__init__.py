@@ -327,6 +327,7 @@ def kube_replace_secret(args, namespace, secret, data):
 
     if current_secret_data != new_secret_data:
         print("There's an update to secret data in namespace "+str(namespace) + " for secret "+str(secret))
+        print("Old secret is : "+current_secret_data+". New secret is "+new_secret_data)
     else:
         print("Secret data not updated in namespace "+ str(namespace) + " for secret " + str(secret))
     
