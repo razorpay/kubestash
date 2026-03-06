@@ -16,7 +16,6 @@ from collections import namedtuple
 # TODO: args.profile, args.arn
 # TODO: args.version
 
-
 def base_parser():
     """ Parses arguments shared by every subcommand. """
     parser = argparse.ArgumentParser(add_help=False)
